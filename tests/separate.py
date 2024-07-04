@@ -3,6 +3,8 @@ import clip
 from PIL import Image
 from torchvision import transforms
 import os
+import numpy as np
+import re
  
 class ClipEmbeding():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -13,13 +15,12 @@ class ClipEmbeding():
         self.model, self.processor = clip.load(modelPath, device=self.device)
         self.tokenizer = clip.tokenize
  
-    def probs(self, image: Image):
+    def probs(self, image: Image, textList: list):
         process_image = self.processor(image).unsqueeze(0).to(self.device)
-        text = self.tokenizer(["a satellite", "a rocket", "a map", "a car"]).to(self.device)
+        text = self.tokenizer(textList).to(self.device)
  
         with torch.no_grad():
             logits_per_image, logits_per_text = self.model(process_image, text)
-            print("Image-text similarity:", logits_per_image.shape)
             probs = logits_per_image.softmax(dim=-1).cpu().numpy()
  
         print("Label probs:", probs)
@@ -50,15 +51,36 @@ class ClipEmbeding():
  
 if __name__ == "__main__":
     curPath = os.path.dirname(os.path.abspath(__file__))
-    image_path = '../data/AAC-AIS-Sat1__1.jpg'
-    image_path = os.path.join(curPath, image_path)
- 
-    pil_image = Image.open(image_path)
+    dataPath = 'D:\code\L-MBN\LMBN\MyData\satimg_train'
  
     model = ClipEmbeding(curPath)
-    model.probs(pil_image)
-    imFea, txFea = model.embeding(pil_image, "a satellite")
-    print("Image feature:", imFea.shape)
-    print("Text feature:", txFea.shape)
+    # txSat = 'a satellite'
+    # txRoc = 'a rocket'
+    # txMap = 'a map'
+    # txCar = 'a car'
+    textList = ['a satellite', 'a rocket', 'a map', 'a car', 'rocket launch', 'a trunk', 'a news report', 'an advertisement']
 
-    print("Cosine similarity:", model.cos_sim(imFea, txFea))
+    txfeaList = [model.text2fea(text) for text in textList]
+
+    folders = os.listdir(dataPath)
+    for folder in folders:
+        images = os.listdir(os.path.join(dataPath, folder))
+        print(folder)
+        for image in images:
+            img = Image.open(os.path.join(dataPath, folder, image))
+            img = img.convert('RGB')
+            imgFea = model.img2fea(img)
+            
+            likeList = [model.cos_sim(imgFea, txFea)[0].item()*100 for txFea in txfeaList]
+            likeList = [np.exp(like) for like in likeList]
+            likeList = [like/sum(likeList) for like in likeList]
+
+            # model.probs(img, textList)
+
+            if max(likeList) != likeList[0]:
+                os.remove(os.path.join(dataPath, folder, image))
+            elif not image.endswith('.jpeg'):
+                os.remove(os.path.join(dataPath, folder, image))
+                image = re.sub(r"\.(.*)", ".jpeg", image)
+                img.save(os.path.join(dataPath, folder, image))
+
