@@ -5,6 +5,8 @@ from torchvision import transforms
 import os
 import numpy as np
 import re
+import glob
+import cv2
  
 class ClipEmbeding():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -54,38 +56,43 @@ if __name__ == "__main__":
     dataPath = 'D:\code\L-MBN\LMBN\MyData\satimg_train'
  
     model = ClipEmbeding(curPath)
-    # txSat = 'a satellite'
-    # txRoc = 'a rocket'
-    # txMap = 'a map'
-    # txCar = 'a car'
-    textList = ['a satellite', 'a rocket', 'a map', 'a car', 'rocket launch', 'a trunk', 'a news report', 'an advertisement', 'a paper']
-
-    txfeaList = [model.text2fea(text) for text in textList]
-
+    
     folders = os.listdir(dataPath)
+    train_data = []
+    
     for folder in folders:
-        images = os.listdir(os.path.join(dataPath, folder))
-        print(folder)
-        for image in images:
-            try:
-                img = Image.open(os.path.join(dataPath, folder, image))
-            except:
-                os.remove(os.path.join(dataPath, folder, image))
-                continue
-            img = img.convert('RGB')
-            imgFea = model.img2fea(img)
-            
-            likeList = [model.cos_sim(imgFea, txFea)[0].item()*100 for txFea in txfeaList]
-            likeList = [np.exp(like) for like in likeList]
-            likeList = [like/sum(likeList) for like in likeList]
+        pid = int(re.findall(r"__(.*)",folder)[0])
+        for img in glob.glob(os.path.join(dataPath,folder,'*.jpeg')):
+            train_data.append((img, pid))
 
-            # model.probs(img, textList)
+    query_data = []
+    query_path = 'D:\code\L-MBN\LMBN\MyData\satellite'
+    query_lables = os.listdir(query_path)
+    query_ids = [re.findall(r"__(.*)", lable)[0] for lable in query_lables]
+    query_ids = [int(i.split('.')[0]) for i in query_ids]
+    for i, name in enumerate(glob.glob(os.path.join(query_path, '*.jpg'))):
+        query_data.append((name, query_ids[i]))
 
-            if max(likeList) != likeList[0]:
-                os.remove(os.path.join(dataPath, folder, image))
-            elif not image.endswith('.jpeg'):
-                os.remove(os.path.join(dataPath, folder, image))
-                image = re.sub(r"\.(.*)", ".jpeg", image)
-                img.save(os.path.join(dataPath, folder, image))
+    for gt, pid in query_data:
+        img1 = Image.open(gt)
+        fea1 = model.img2fea(img1)
+        img2 = None
+        path = None
+        for train_img, train_pid in train_data:
+            if train_pid == pid:
+                img2 = Image.open(train_img)
+                path = train_img
+                break
+        if img2 is None:
+            print("No match found for pid: ", pid)
+            continue
+        fea2 = model.img2fea(img2)
+        sim = model.cos_sim(fea1, fea2)
+        if sim.item() > 0.99:
+            print("Match found: ", path)
+            os.remove(path)
+
+
+    
 
 
